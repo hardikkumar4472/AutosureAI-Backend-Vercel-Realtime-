@@ -24,25 +24,46 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
+// ========== CRITICAL: CORS MIDDLEWARE MUST COME FIRST ==========
+const allowedOrigins = [
+  'https://autosureml.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  // Add your Vercel frontend URL if you have one
+  // 'https://your-frontend.vercel.app'
+];
+
 const corsOptions = {
-  origin: [
-    'https://autosureml.onrender.com',  // Your frontend
-    'http://localhost:3000',            // Local development
-    'http://localhost:3001',            // Other local ports if needed
-  ],
-  credentials: true,                    // Allow cookies if needed
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('Blocked by CORS:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Request-ID'],
+  maxAge: 86400, // 24 hours
   optionsSuccessStatus: 200
 };
 
+// Apply CORS middleware BEFORE other middleware
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-app.use(express.json());
-app.use(helmet());
 
-// Routes
+// Handle preflight requests for ALL routes
+app.options('*', cors(corsOptions));
+
+// ========== OTHER MIDDLEWARE ==========
+app.use(helmet());
+app.use(express.json());
+
+// ========== ROUTES ==========
 app.use("/api/auth", authRoutes);
 app.use("/api/accidents", accidentRoutes);
 app.use("/api/agent", agentRoutes);
@@ -59,11 +80,37 @@ app.use("/api/admin/export", exportRoutes);
 app.use("/api/traffic", trafficRoutes);
 app.use("/api/claims", claimRoutes);
 
-// Health check
-app.get("/", (req, res) => res.json({ message: "AutoSureAI Backend Running 🚗" }));
+// ========== HEALTH CHECK ==========
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "AutoSureAI Backend Running 🚗",
+    timestamp: new Date().toISOString(),
+    cors: {
+      allowedOrigins: allowedOrigins,
+      methods: corsOptions.methods
+    }
+  });
+});
 
-// Connect to MongoDB
+// ========== ERROR HANDLING ==========
+// Add error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ 
+      error: 'CORS Error', 
+      message: 'Origin not allowed',
+      allowedOrigins: allowedOrigins,
+      yourOrigin: req.headers.origin
+    });
+  }
+  
+  res.status(500).json({ error: err.message || 'Internal Server Error' });
+});
+
+// ========== CONNECT TO DATABASE ==========
 connectDB().catch(console.error);
 
-// Export for Vercel
+// ========== EXPORT FOR VERCEL ==========
 export default app;
