@@ -7,7 +7,7 @@ import User from "../models/User.js";
 import { uploadToSupabase, uploadPDFToSupabase } from "../utils/uploadSupabase.js";
 import { sendAccidentEmail } from "../utils/sendAccidentEmail.js";
 import { generateAccidentReportPDF } from "../utils/generateAccidentReportPdf.js";
-import { io } from "../server.js";
+// import { io } from "../server.js";
 
 export const reportAccident = async (req, res) => {
   try {
