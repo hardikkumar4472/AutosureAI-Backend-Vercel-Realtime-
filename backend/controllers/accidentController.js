@@ -1,6 +1,8 @@
 import axios from "axios";
 import FormData from "form-data";
 import fs from "fs";
+import path from "path";
+import os from "os";
 import Accident from "../models/Accident.js";
 import Claim from "../models/Claim.js";
 import User from "../models/User.js";
@@ -10,13 +12,29 @@ import { generateAccidentReportPDF } from "../utils/generateAccidentReportPdf.js
 import { io } from "../server.js";
 
 export const reportAccident = async (req, res) => {
+  let tempFilePath = null;
+  
   try {
-
+    // Upload to Supabase first
     const fileUrl = await uploadToSupabase(req.file);
     const { lat, lon, address } = req.body;
 
+    // Prepare form data for Flask API
     const formData = new FormData();
-    formData.append("image", fs.createReadStream(req.file.path));
+    
+    // Handle file differently based on storage type
+    if (req.file.buffer) {
+      // Memory storage (Vercel production)
+      // Write buffer to temp file for Flask API
+      tempFilePath = path.join(os.tmpdir(), `temp_${Date.now()}_${req.file.originalname}`);
+      fs.writeFileSync(tempFilePath, req.file.buffer);
+      formData.append("image", fs.createReadStream(tempFilePath));
+    } else if (req.file.path) {
+      // Disk storage (local development)
+      formData.append("image", fs.createReadStream(req.file.path));
+    } else {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
 
     const response = await axios.post(process.env.FLASK_API_URL, formData, {
       headers: formData.getHeaders(),
@@ -41,7 +59,6 @@ export const reportAccident = async (req, res) => {
     let claim = null;
 
     if (agent) {
-
       claim = await Claim.create({
         driverId: req.user.id,
         reportId: accident._id,
@@ -59,12 +76,14 @@ export const reportAccident = async (req, res) => {
       accident.claimId = claim._id;
       await accident.save();
 
-      io.to(`user_${agent._id}`).emit("new_claim_assigned", {
-        claimId: claim._id,
-        reportId: accident._id,
-        severity: claim.severity,
-        estimatedCost: claim.estimatedCost,
-      });
+      if (io) {
+        io.to(`user_${agent._id}`).emit("new_claim_assigned", {
+          claimId: claim._id,
+          reportId: accident._id,
+          severity: claim.severity,
+          estimatedCost: claim.estimatedCost,
+        });
+      }
     }
 
     const pdfReport = await generateAccidentReportPDF(accident, req.user);
@@ -75,9 +94,14 @@ export const reportAccident = async (req, res) => {
 
     await sendAccidentEmail(req.user.email, data, pdfReport.path);
 
+    // Clean up temporary files
     try {
-      if (req.file?.path) fs.unlink(req.file.path, () => {});
-
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
     } catch (e) {
       console.warn("⚠️ File cleanup failed:", e.message);
     }
@@ -90,6 +114,13 @@ export const reportAccident = async (req, res) => {
       reportUrl: pdfUrl,
     });
   } catch (err) {
+    // Clean up temp file on error
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (e) {}
+    }
+    
     console.error("❌ reportAccident error:", err);
     res.status(500).json({ message: err.message });
   }
@@ -160,29 +191,31 @@ export const reassignClaim = async (req, res) => {
 
     await claim.save();
 
-    if (oldAgent) {
-      io.to(`user_${oldAgent._id}`).emit("claim_unassigned", {
+    if (io) {
+      if (oldAgent) {
+        io.to(`user_${oldAgent._id}`).emit("claim_unassigned", {
+          claimId: claim._id,
+          reason: "Reassigned by admin"
+        });
+      }
+
+      io.to(`user_${newAgentId}`).emit("claim_assigned", {
         claimId: claim._id,
-        reason: "Reassigned by admin"
+        severity: claim.severity,
+        estimatedCost: claim.estimatedCost
+      });
+
+      io.to(`user_${claim.driverId._id}`).emit("claim_reassigned", {
+        claimId: claim._id,
+        newAgent: newAgent.name
+      });
+
+      io.to("role_admin").emit("claim_reassignment_update", {
+        claimId: claim._id,
+        from: oldAgent?._id || null,
+        to: newAgentId
       });
     }
-
-    io.to(`user_${newAgentId}`).emit("claim_assigned", {
-      claimId: claim._id,
-      severity: claim.severity,
-      estimatedCost: claim.estimatedCost
-    });
-
-    io.to(`user_${claim.driverId._id}`).emit("claim_reassigned", {
-      claimId: claim._id,
-      newAgent: newAgent.name
-    });
-
-    io.to("role_admin").emit("claim_reassignment_update", {
-      claimId: claim._id,
-      from: oldAgent?._id || null,
-      to: newAgentId
-    });
 
     res.json({
       success: true,
