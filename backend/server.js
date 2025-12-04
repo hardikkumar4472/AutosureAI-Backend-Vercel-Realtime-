@@ -24,76 +24,45 @@ dotenv.config();
 
 const app = express();
 
-// ========== BULLETPROOF CORS SETUP ==========
-// 1. Configure CORS with explicit options
-const allowedOrigins = [
-  'https://autosureml.onrender.com',
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://autosure-ai-backend-vercel-realtime-vmfs-mm0z9tlcy.vercel.app' // Allow self
-];
+// ========== CRITICAL: MANUAL CORS HANDLING ==========
+// Remove cors() package and handle manually
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(null, true); // Temporarily allow all for debugging
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto'],
-  exposedHeaders: ['Content-Length', 'X-Request-ID'],
-  maxAge: 86400, // 24 hours
-  optionsSuccessStatus: 204
-};
-
-// 2. Apply CORS middleware
-app.use(cors(corsOptions));
-
-// 3. MANUALLY handle OPTIONS (preflight) requests
-app.options('*', (req, res) => {
-  const origin = req.headers.origin;
-  
-  if (allowedOrigins.includes(origin) || !origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400');
-  }
-  
-  res.sendStatus(204);
-});
-
-// 4. Add manual CORS headers to all responses
+// Middleware to add CORS headers to EVERY response
 app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://autosureml.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:8000'
+  ];
+  
   const origin = req.headers.origin;
   
-  if (allowedOrigins.includes(origin) || !origin) {
+  // Add CORS headers
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (process.env.NODE_ENV === 'development') {
+    // Allow all in development
     res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   
-  // Handle preflight
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Handle OPTIONS (preflight) requests
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    return res.status(200).end();
   }
   
   next();
 });
 
 // ========== OTHER MIDDLEWARE ==========
-// Disable helmet for now to test
-// app.use(helmet());
 app.use(express.json());
+// Temporarily disable helmet for CORS testing
+// app.use(helmet());
 
 // ========== ROUTES ==========
 app.use("/api/auth", authRoutes);
@@ -112,39 +81,52 @@ app.use("/api/admin/export", exportRoutes);
 app.use("/api/traffic", trafficRoutes);
 app.use("/api/claims", claimRoutes);
 
-// ========== DEBUG ENDPOINTS ==========
+// ========== TEST ENDPOINTS ==========
 app.get("/", (req, res) => {
-  res.json({ 
+  res.json({
     message: "AutoSureAI Backend Running 🚗",
     timestamp: new Date().toISOString(),
-    cors: {
-      allowedOrigins: allowedOrigins,
-      requestOrigin: req.headers.origin,
-      headersSent: res.getHeaders()
-    }
+    cors: "Manual CORS enabled",
+    requestOrigin: req.headers.origin,
+    allowedOrigins: [
+      'https://autosureml.onrender.com',
+      'http://localhost:3000'
+    ]
   });
 });
 
-app.get("/debug-cors", (req, res) => {
+app.get("/test-cors", (req, res) => {
   res.json({
-    headers: req.headers,
+    success: true,
+    message: "CORS test endpoint",
     origin: req.headers.origin,
     method: req.method,
-    url: req.url
+    headers: req.headers
   });
+});
+
+app.options("*", (req, res) => {
+  res.status(200).end();
 });
 
 // ========== ERROR HANDLING ==========
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ 
-    error: 'Internal Server Error',
-    message: err.message 
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something broke!' });
+});
+
+// ========== 404 HANDLER ==========
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.path,
+    method: req.method,
+    origin: req.headers.origin
   });
 });
 
-// ========== CONNECT TO DATABASE ==========
+// ========== DATABASE CONNECTION ==========
 connectDB().catch(console.error);
 
-// ========== EXPORT FOR VERCEL ==========
+// ========== EXPORT ==========
 export default app;
