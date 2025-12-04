@@ -12,7 +12,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import adminAnalyticsRoutes from "./routes/adminAnalyticsRoute.js"
 import auditRoutes from "./routes/auditRoutes.js";
 import broadcastRoutes from "./routes/brodcastRoutes.js"
-// import trafficEvidenceRoutes from "./routes/trafficFIRroutes.js";
+import trafficEvidenceRoutes from "./routes/trafficFIRroutes.js";
 import adminTrafficRoutes from "./routes/adminTrafficRoutes.js";
 import claimSettlementRoutes from "./routes/settlementRoutes.js";
 import hotspotRoutes from "./routes/hotspotRoutes.js";
@@ -39,7 +39,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin/audit-logs", auditRoutes);
 app.use("/api/admin/broadcast", broadcastRoutes);
 app.use("/api/admin/analytics", adminAnalyticsRoutes);
-// app.use("/api/traffic-evidence", uploadLimiter,trafficEvidenceRoutes); 
+app.use("/api/traffic-evidence", uploadLimiter,trafficEvidenceRoutes); 
 app.use("/api/admin", adminTrafficRoutes); 
 app.use("/api/settlement", claimSettlementRoutes);
 app.use("/api/admin/hotspots", hotspotRoutes); 
