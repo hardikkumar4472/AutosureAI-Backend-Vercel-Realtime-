@@ -36,6 +36,9 @@ if (!process.env.VERCEL) {
   connectDB();
 }
 
+// Create a global io variable
+let io = null;
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/accidents", accidentRoutes);
@@ -87,7 +90,7 @@ if (!process.env.VERCEL) {
   import("http").then((http) => {
     import("socket.io").then(({ Server }) => {
       const server = http.createServer(app);
-      const io = new Server(server, {
+      io = new Server(server, {
         cors: { origin: "*" }
       });
       
@@ -123,3 +126,6 @@ if (!process.env.VERCEL) {
 
 // Export for Vercel
 export default app;
+
+// Export io for other files
+export { io };
