@@ -25,7 +25,19 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+  origin: [
+    'https://autosureml.onrender.com',  // Your frontend
+    'http://localhost:3000',            // Local development
+    'http://localhost:3001',            // Other local ports if needed
+  ],
+  credentials: true,                    // Allow cookies if needed
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(helmet());
 
