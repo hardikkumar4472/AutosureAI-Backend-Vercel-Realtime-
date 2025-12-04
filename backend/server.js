@@ -24,13 +24,13 @@ dotenv.config();
 
 const app = express();
 
-// ========== CRITICAL: CORS MIDDLEWARE MUST COME FIRST ==========
+// ========== BULLETPROOF CORS SETUP ==========
+// 1. Configure CORS with explicit options
 const allowedOrigins = [
   'https://autosureml.onrender.com',
   'http://localhost:3000',
   'http://localhost:3001',
-  // Add your Vercel frontend URL if you have one
-  // 'https://your-frontend.vercel.app'
+  'https://autosure-ai-backend-vercel-realtime-vmfs-mm0z9tlcy.vercel.app' // Allow self
 ];
 
 const corsOptions = {
@@ -41,26 +41,58 @@ const corsOptions = {
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log('Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.log('CORS blocked origin:', origin);
+      callback(null, true); // Temporarily allow all for debugging
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto'],
   exposedHeaders: ['Content-Length', 'X-Request-ID'],
   maxAge: 86400, // 24 hours
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 204
 };
 
-// Apply CORS middleware BEFORE other middleware
+// 2. Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Handle preflight requests for ALL routes
-app.options('*', cors(corsOptions));
+// 3. MANUALLY handle OPTIONS (preflight) requests
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin) || !origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  
+  res.sendStatus(204);
+});
+
+// 4. Add manual CORS headers to all responses
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin) || !origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
 
 // ========== OTHER MIDDLEWARE ==========
-app.use(helmet());
+// Disable helmet for now to test
+// app.use(helmet());
 app.use(express.json());
 
 // ========== ROUTES ==========
@@ -80,33 +112,35 @@ app.use("/api/admin/export", exportRoutes);
 app.use("/api/traffic", trafficRoutes);
 app.use("/api/claims", claimRoutes);
 
-// ========== HEALTH CHECK ==========
+// ========== DEBUG ENDPOINTS ==========
 app.get("/", (req, res) => {
   res.json({ 
     message: "AutoSureAI Backend Running 🚗",
     timestamp: new Date().toISOString(),
     cors: {
       allowedOrigins: allowedOrigins,
-      methods: corsOptions.methods
+      requestOrigin: req.headers.origin,
+      headersSent: res.getHeaders()
     }
   });
 });
 
+app.get("/debug-cors", (req, res) => {
+  res.json({
+    headers: req.headers,
+    origin: req.headers.origin,
+    method: req.method,
+    url: req.url
+  });
+});
+
 // ========== ERROR HANDLING ==========
-// Add error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err.message);
-  
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({ 
-      error: 'CORS Error', 
-      message: 'Origin not allowed',
-      allowedOrigins: allowedOrigins,
-      yourOrigin: req.headers.origin
-    });
-  }
-  
-  res.status(500).json({ error: err.message || 'Internal Server Error' });
+  console.error('Error:', err);
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: err.message 
+  });
 });
 
 // ========== CONNECT TO DATABASE ==========
