@@ -3,7 +3,7 @@ import multer from "multer";
 import { trafficAuth } from "../middleware/trafficAuth.js";
 import { updateFIR } from "../controllers/trafficController.js";
 
-const upload = multer({ dest: "uploads/" });
+// const upload = multer({ dest: "uploads/" });
 
 const router = express.Router();
 
